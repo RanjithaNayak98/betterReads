@@ -1,0 +1,2 @@
+# betterReads
+Spring Boot + Cassandra
