@@ -4,10 +4,16 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import javax.annotation.PostConstruct;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,10 +23,14 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.cassandra.CqlSessionBuilderCustomizer;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.format.annotation.DateTimeFormat;
 
 import io.javabrains.author.Author;
 import io.javabrains.author.AuthorRepository;
+import io.javabrains.book.Book;
+import io.javabrains.book.BookRepository;
 import io.javabrains.connection.DataStaxAstraProperties;
+import jnr.ffi.Struct.int16_t;
 
 @SpringBootApplication
 @EnableConfigurationProperties(DataStaxAstraProperties.class)
@@ -28,6 +38,9 @@ public class BetterreadsDataLoaderApplication {
 
 	@Autowired
 	AuthorRepository authorRepository;
+	
+	@Autowired
+	BookRepository bookRepository;
 
 	@Value("${datadump.location.author}")
 	private String authorDumpLocation;
@@ -70,13 +83,75 @@ public class BetterreadsDataLoaderApplication {
 	}
 
 	private void initWorks() {
-
+		
+		Path path = Paths.get(worksDumpLocation);
+		DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSSSS");
+		try {
+			Stream<String> lines =  Files.lines(path);
+			lines.forEach(line -> {
+				String jsonString =  line.substring(line.indexOf("{"));
+				try {
+					JSONObject jsonObject = new JSONObject(jsonString);
+					Book book = new Book();
+					book.setId(jsonObject.optString("key").replace("/works/", ""));
+					book.setName(jsonObject.optString("title"));
+					
+					JSONArray authorArray = jsonObject.optJSONArray("authors");
+					if(authorArray !=null) {
+						List<String> authorIds = new ArrayList<>();
+						for(int i=0; i < authorArray.length(); i++) {
+						String authorIdString =	authorArray.getJSONObject(i).getJSONObject("author").getString("key")
+							.replace("/authors/","");
+						authorIds.add(authorIdString);
+						}
+						book.setAuthorId(authorIds);
+						List<String> authorNames = authorIds.stream().map(id -> authorRepository.findById(id))
+						.map(optionalAuthor -> {
+							if(!optionalAuthor.isPresent()) return "unkown author";
+							return optionalAuthor.get().getName();
+						}).collect(Collectors.toList());
+						book.setAuthorNames(authorNames);
+					}
+					
+					
+					JSONArray coversJSONArray = jsonObject.optJSONArray("covers");
+					if(coversJSONArray!=null) {
+						List<String> coverIds = new ArrayList<>();
+						for(int i=0; i < coversJSONArray.length(); i++) {
+						coverIds.add(coversJSONArray.getString(i));
+						book.setCoverId(coverIds);
+						}
+					}
+					
+					JSONObject descriptionObject = jsonObject.optJSONObject("description");
+					if(descriptionObject != null) {
+						book.setDescription(descriptionObject.optString("value"));
+					}
+					
+					JSONObject publishedObject = jsonObject.optJSONObject("created");
+					if(publishedObject != null) {
+						String dateString = publishedObject.optString("value");
+						book.setPublishedDate(LocalDate.parse(dateString, dateFormatter));
+					}
+					
+					
+					System.out.println("saving book "+book.getName());
+					bookRepository.save(book);
+					
+					
+				} catch (JSONException e) {
+					e.printStackTrace();
+				}
+			});
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
 	}
 
 
 	@PostConstruct
 	public void start() {
-		initAuthors();
+		//initAuthors();
 		initWorks();
 	}
 
