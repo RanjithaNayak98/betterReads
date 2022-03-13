@@ -1,3 +1,7 @@
+datadump.location:
+  author: C:\\Users\\hp\\OneDrive\\Documents\\test-authors.txt.txt
+  works: C:\\Users\\hp\\OneDrive\\Documents\\test-works.txt.txt
+
 spring:
   data:
     cassandra:
